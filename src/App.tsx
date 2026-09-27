@@ -8,6 +8,8 @@ import Scene4 from './scenes/Scene4';
 import Scene5 from './scenes/Scene5';
 import Scene6 from './scenes/Scene6';
 import Scene7 from './scenes/Scene7';
+import { useAudioNarration } from './hooks/useAudioNarration';
+import { useBackgroundAudio } from './hooks/useBackgroundAudio';
 
 const TOTAL_DURATION = 150; // 2:30 in seconds
 
@@ -46,10 +48,27 @@ export default function App() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [hasStarted, setHasStarted] = useState(false);
+  const [volume, setVolume] = useState(0.8);
+  const [showVolumeSlider, setShowVolumeSlider] = useState(false);
 
   const currentScene = SCENES.find(s => currentTime >= s.start && currentTime < s.end) || SCENES[SCENES.length - 1];
   const currentSubtitle = SUBTITLES.find(s => currentTime >= s.start && currentTime < s.end);
   const progress = (currentTime / TOTAL_DURATION) * 100;
+
+  // Audio integration
+  const { stopNarration } = useAudioNarration({
+    subtitles: SUBTITLES,
+    currentTime,
+    isPlaying,
+    isMuted,
+  });
+
+  const { initAudio } = useBackgroundAudio({
+    isPlaying,
+    isMuted,
+    currentTime,
+    totalDuration: TOTAL_DURATION,
+  });
 
   useEffect(() => {
     let interval: ReturnType<typeof setInterval>;
@@ -68,27 +87,34 @@ export default function App() {
   }, [isPlaying, currentTime]);
 
   const handlePlayPause = useCallback(() => {
-    if (!hasStarted) setHasStarted(true);
+    if (!hasStarted) {
+      setHasStarted(true);
+      // Initialize audio on first user interaction (required by browsers)
+      initAudio();
+    }
     if (currentTime >= TOTAL_DURATION) {
       setCurrentTime(0);
       setIsPlaying(true);
     } else {
       setIsPlaying(!isPlaying);
     }
-  }, [isPlaying, currentTime, hasStarted]);
+  }, [isPlaying, currentTime, hasStarted, initAudio]);
 
   const handleRestart = useCallback(() => {
     setCurrentTime(0);
     setIsPlaying(true);
     setHasStarted(true);
-  }, []);
+    stopNarration();
+    initAudio();
+  }, [stopNarration, initAudio]);
 
   const handleSeek = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const percentage = x / rect.width;
     setCurrentTime(percentage * TOTAL_DURATION);
-  }, []);
+    stopNarration(); // Reset narration on seek to resync
+  }, [stopNarration]);
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -167,8 +193,9 @@ export default function App() {
             >
               <Play className="w-8 h-8 text-white ml-1" />
             </motion.div>
-            <p className="text-white/50 text-sm mt-6">Click to play • 2:30</p>
+            <p className="text-white/50 text-sm mt-6">Click to play with audio • 2:30</p>
             <p className="text-white/30 text-xs mt-2">Smart India Hackathon Project</p>
+            <p className="text-white/20 text-xs mt-1">🔊 Narration + Ambient Sound</p>
           </motion.div>
         )}
       </div>
@@ -203,12 +230,55 @@ export default function App() {
             >
               <RotateCcw className="w-4 h-4" />
             </button>
-            <button
-              onClick={() => setIsMuted(!isMuted)}
-              className="text-white hover:text-teal-300 transition-colors"
+            <div 
+              className="relative flex items-center"
+              onMouseEnter={() => setShowVolumeSlider(true)}
+              onMouseLeave={() => setShowVolumeSlider(false)}
             >
-              {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
-            </button>
+              <button
+                onClick={() => setIsMuted(!isMuted)}
+                className="text-white hover:text-teal-300 transition-colors"
+              >
+                {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+              </button>
+              {/* Volume Slider */}
+              <div className={`overflow-hidden transition-all duration-200 ${showVolumeSlider ? 'w-20 ml-1 opacity-100' : 'w-0 opacity-0'}`}>
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.1"
+                  value={isMuted ? 0 : volume}
+                  onChange={(e) => {
+                    const val = parseFloat(e.target.value);
+                    setVolume(val);
+                    if (val === 0) setIsMuted(true);
+                    else if (isMuted) setIsMuted(false);
+                  }}
+                  className="w-full h-1 bg-white/30 rounded-full appearance-none cursor-pointer accent-teal-400"
+                />
+              </div>
+            </div>
+            {/* Audio indicator */}
+            {isPlaying && !isMuted && (
+              <div className="flex items-center gap-0.5 ml-1">
+                <motion.div
+                  animate={{ height: ['4px', '10px', '4px'] }}
+                  transition={{ duration: 0.5, repeat: Infinity, delay: 0 }}
+                  className="w-0.5 bg-teal-400 rounded-full"
+                />
+                <motion.div
+                  animate={{ height: ['8px', '4px', '8px'] }}
+                  transition={{ duration: 0.5, repeat: Infinity, delay: 0.1 }}
+                  className="w-0.5 bg-teal-400 rounded-full"
+                />
+                <motion.div
+                  animate={{ height: ['4px', '12px', '4px'] }}
+                  transition={{ duration: 0.5, repeat: Infinity, delay: 0.2 }}
+                  className="w-0.5 bg-teal-400 rounded-full"
+                />
+              </div>
+            )}
             <span className="text-white/70 text-xs font-mono">
               {formatTime(currentTime)} / {formatTime(TOTAL_DURATION)}
             </span>
